@@ -1,31 +1,38 @@
-const solanaWeb3 = require('solana-web3');
+import { Contract, Config } from "solana-web3.js";
+import { Connection } from "solana-web3.js/dist/interfaces/connection";
 
-// Connect to a Solana cluster
-const client = new solanaWeb3.Client('http://localhost:8899');
 
-// Load the contract ABI and bytecode
-const contractAbi = require('./TimeLocked.abi.json');
-const contractBytecode = require('./TimeLocked.bin');
 
-// Deploy the contract
-const contract = new client.Contract(contractAbi, contractBytecode, {
-  defaultAccount: '<YOUR_SOLANA_PUBLIC_KEY>',
-  defaultConfirmations: 1,
-  defaultGasPrice: 0,
-});
+export class LockBox extends Contract {
+  constructor(publicKey: string, connection: Connection) {
+    super(publicKey);
+    this.owner = publicKey;
+    this.connection = connection;
+  }
 
-const releaseTime = Math.floor(Date.now() / 1000) + 60 * 60; // 1 hour from now
-const unlockInterval = 60 * 60 * 24; // 1 day
-const percentage = 50; // 50%
+  async lock(unlockTime: number, releasePercentage: number, amount: number): Promise<void> {
+    assert(await this.isSigner(this.owner), "Only the owner can lock the funds.");
+    assert(releasePercentage <= 100, "The release percentage must be less than or equal to 100.");
 
-const deploy = contract.deploy([releaseTime, unlockInterval, percentage]);
-deploy.send({
-  amount: solanaWeb3.BigNumber.from('10000000'),
-  confirmationCallback: (confirmationCount, transactionReceipt) => {
-    console.log(confirmationCount, transactionReceipt);
-  },
-  confirmationCount: 1,
-  gasPrice: 0,
-}).then((response) => {
-  console.log(response.contractAddress);
-});
+    this.unlockTime = unlockTime;
+    this.releasePercentage = releasePercentage;
+    this.lockedFunds += amount;
+
+
+    await this.connection.updateContract(this.publicKey, this.encode());
+  }
+
+  // The release function can only be called after the unlock time has passed. It releases
+  // the specified percentage of the locked funds.
+  async release(): Promise<void> {
+    assert(await this.connection.getTimestamp() >= this.unlockTime, "The unlock time has not yet passed.");
+
+    const releaseAmount = (this.lockedFunds * this.releasePercentage) / 100;
+    const remainingFunds = this.lockedFunds - releaseAmount;
+
+    await this.transfer(releaseAmount);
+
+
+    this.lockedFunds = remainingFunds;
+
+
