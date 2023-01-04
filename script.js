@@ -1,38 +1,52 @@
-import { Contract, Config } from "solana-web3.js";
-import { Connection } from "solana-web3.js/dist/interfaces/connection";
+use solana_sdk::{
+    account::Account,
+    account_utils::State,
+    pubkey::Pubkey,
+    sysvar,
+};
+use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::transaction::{Transaction, TransactionError};
 
 
 
-export class LockBox extends Contract {
-  constructor(publicKey: string, connection: Connection) {
-    super(publicKey);
-    this.owner = publicKey;
-    this.connection = connection;
-  }
+#[derive(Debug, Default, Clone)]
+pub struct LockBox {
+    
+    owner: Pubkey,
 
-  async lock(unlockTime: number, releasePercentage: number, amount: number): Promise<void> {
-    assert(await this.isSigner(this.owner), "Only the owner can lock the funds.");
-    assert(releasePercentage <= 100, "The release percentage must be less than or equal to 100.");
+    
+    unlock_time: u64,
 
-    this.unlockTime = unlockTime;
-    this.releasePercentage = releasePercentage;
-    this.lockedFunds += amount;
+    
+    release_percentage: u64,
 
+   
+    locked_funds: u64,
+}
 
-    await this.connection.updateContract(this.publicKey, this.encode());
-  }
+impl LockBox {
+    
+    pub fn lock(&mut self, owner: &Pubkey, unlock_time: u64, release_percentage: u64, amount: u64) {
+        assert_eq!(self.owner, *owner, "Only the owner can lock the funds.");
+        assert!(release_percentage <= 100, "The release percentage must be less than or equal to 100.");
 
-  // The release function can only be called after the unlock time has passed. It releases
-  // the specified percentage of the locked funds.
-  async release(): Promise<void> {
-    assert(await this.connection.getTimestamp() >= this.unlockTime, "The unlock time has not yet passed.");
+        self.unlock_time = unlock_time;
+        self.release_percentage = release_percentage;
+        self.locked_funds += amount;
+    }
 
-    const releaseAmount = (this.lockedFunds * this.releasePercentage) / 100;
-    const remainingFunds = this.lockedFunds - releaseAmount;
+    
+    pub fn release(&mut self, caller: &Pubkey) {
+        assert!(self.unlock_time <= solana_sdk::timestamp::get(), "The unlock time has not yet passed.");
 
-    await this.transfer(releaseAmount);
+        let release_amount = (self.locked_funds * self.release_percentage) / 100;
+        let remaining_funds = self.locked_funds - release_amount;
 
+        
+        let mut caller_account = Account::default();
+        caller_account.balance = release_amount;
+        solana_sdk::transfer(&caller_account, caller).unwrap();
 
-    this.lockedFunds = remainingFunds;
-
-
+       
+        self.locked_funds = remaining_funds;
+    }
