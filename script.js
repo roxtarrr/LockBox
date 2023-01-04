@@ -11,16 +11,9 @@ use solana_sdk::transaction::{Transaction, TransactionError};
 
 #[derive(Debug, Default, Clone)]
 pub struct LockBox {
-    
     owner: Pubkey,
-
-    
     unlock_time: u64,
-
-    
     release_percentage: u64,
-
-   
     locked_funds: u64,
 }
 
